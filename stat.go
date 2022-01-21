@@ -69,9 +69,10 @@ func (s *ReqStat) ClearAll() {
 }
 
 func (s *ReqStat) Start(wg *sync.WaitGroup) {
+	var tickDuration int = 1000 // ms
 	wg.Add(1)
 	s.stopFlag = false
-	tc := time.NewTicker(time.Second)
+	tc := time.NewTicker(time.Microsecond * time.Duration(tickDuration*1000))
 	defer tc.Stop()
 	fname := fmt.Sprintf("stat-%s.log", time.Now().Format("2006-01-02_15_04_05"))
 	f, err := os.OpenFile(fname, os.O_CREATE, 0777)
@@ -80,10 +81,10 @@ func (s *ReqStat) Start(wg *sync.WaitGroup) {
 
 	var tick uint64 = 0
 
-	f.WriteString(fmt.Sprintf("Started at %s (Unix %d)\n", time.Now().UTC(), time.Now().Unix()))
+	f.WriteString(fmt.Sprintf("Started at %s (Unix %d) tick duration %dms\n", time.Now().UTC(), time.Now().Unix(), tickDuration))
 	f.WriteString("Arguments:\n" + strings.Join(os.Args, " ") + "\n")
 
-	f.WriteString(fmt.Sprintf("%-8s %-8s %-8s %-8s %-8s\n", "Time", "ReqSucc", "ReqFail", "Started", "Running"))
+	f.WriteString(fmt.Sprintf("%-8s %-8s %-8s %-8s %-8s\n", "Tick", "ReqSucc", "ReqFail", "Started", "Running"))
 	for {
 		f.WriteString(fmt.Sprintf("%-8d %-8d %-8d %-8d %-8d\n", tick, s.success, s.failed, s.started, s.started-s.stopped))
 		s.Clear()
@@ -95,7 +96,7 @@ func (s *ReqStat) Start(wg *sync.WaitGroup) {
 		}
 		<-tc.C
 	}
-	f.WriteString(fmt.Sprintf("total: %d succ, %d fail\n", s.totalSuccess, s.totalFailed))
+	f.WriteString(fmt.Sprintf("Summary: %d success, %d failed\n", s.totalSuccess, s.totalFailed))
 
 	if len(s.errors) != 0 {
 		f.WriteString("Error messages statistics: \n")
