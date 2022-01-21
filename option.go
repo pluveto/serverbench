@@ -12,6 +12,7 @@ type Option struct {
 	BatchSize    int64
 	EndPoint     string
 	EndPointType EndPointType
+	HttpMethod   string
 }
 
 type ArgProvider interface {

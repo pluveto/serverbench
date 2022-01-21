@@ -26,6 +26,7 @@ type WorkerContext struct {
 	WorkerID       int64
 	BatchSize      int64
 	TargetLocation string
+	Method         string
 }
 
 func createTransport() *http.Transport {
@@ -60,7 +61,7 @@ func sendRequest(batchID int64, wc *WorkerContext, agp ArgProvider, cli *http.Cl
 		BatchID:    batchID,
 		RequestSeq: Seq(),
 	}
-	req, err := http.NewRequest("POST", wc.TargetLocation,
+	req, err := http.NewRequest(wc.Method, wc.TargetLocation,
 		bytes.NewBuffer(agp.GetBody(reqCtx)),
 	)
 	for k, v := range agp.GetHeaders(reqCtx) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/akamensky/argparse"
@@ -23,6 +24,7 @@ func loadOptions() Option {
 	workerNum := parser.Int("w", "worker-num", &argparse.Options{Required: true, Default: 100})
 	batchSize := parser.Int("b", "batch-size", &argparse.Options{Required: true, Default: 1})
 	endpoint := parser.String("e", "endpoint", &argparse.Options{Required: true, Help: "EndPoint of service"})
+	method := parser.String("m", "method", &argparse.Options{Required: true, Default: "GET", Help: "Http method"})
 	err := parser.Parse(os.Args)
 	if err != nil {
 		// In case of error print error and print usage
@@ -36,6 +38,7 @@ func loadOptions() Option {
 		BatchSize:    int64(*batchSize),
 		EndPoint:     *endpoint,
 		EndPointType: EndPoint_HTTP,
+		HttpMethod:   strings.ToUpper(*method),
 	}
 }
 
@@ -64,6 +67,7 @@ func benchmark(opt Option, agp ArgProvider) {
 				WorkerID:       wid_,
 				BatchSize:      opt.BatchSize,
 				TargetLocation: opt.EndPoint,
+				Method:         opt.HttpMethod,
 			}, agp)
 		}(workerID)
 	}
