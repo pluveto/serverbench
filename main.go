@@ -58,6 +58,8 @@ func benchmark(opt Option, agp ArgProvider) {
 		wg.Add(1)
 		go func(wid_ int64) {
 			defer wg.Done()
+			defer Stat.ReportWorkerStopped()
+			Stat.ReportWorkerStarted()
 			worker(&WorkerContext{
 				WorkerID:       wid_,
 				BatchSize:      opt.BatchSize,
