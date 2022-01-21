@@ -46,7 +46,7 @@ func (s *ReqStat) ReportSuccess() {
 }
 
 func (s *ReqStat) ReportFailed(message string) {
-
+	message = strings.TrimSpace(message)
 	atomic.AddInt64(&s.failed, 1)
 	atomic.AddInt64(&s.totalFailed, 1)
 
@@ -58,7 +58,9 @@ func (s *ReqStat) ReportFailed(message string) {
 	} else {
 		s.errors[message] += 1
 	}
-	go fmt.Println(message)
+	// if len(message) > 0 {
+	// 	fmt.Println(message)
+	// }
 }
 
 func (s *ReqStat) ClearAll() {

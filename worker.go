@@ -29,25 +29,34 @@ type WorkerContext struct {
 	Method         string
 }
 
-func createTransport() *http.Transport {
-	// See https://cloud.tencent.com/developer/article/1684426 for option detail
-	var HTTPTransport = &http.Transport{
+func CreateTransport() *http.Transport {
+	/*
+		// See https://cloud.tencent.com/developer/article/1684426 for option detail
+		var HTTPTransport = &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout: 25 * time.Second,
+			}).DialContext,
+			// prevent pool, see
+			// https://stackoverflow.com/questions/57683132/turning-off-connection-pool-for-go-http-client
+			// http://tleyden.github.io/blog/2016/11/21/tuning-the-go-http-client-library-for-load-testing/
+			DisableKeepAlives: true,
+		}
+		return HTTPTransport */
+	tr := &http.Transport{
 		DialContext: (&net.Dialer{
-			Timeout: 25 * time.Second,
+			Timeout:   120 * time.Second,
+			KeepAlive: 120 * time.Second,
 		}).DialContext,
-		// prevent pool, see
-		// https://stackoverflow.com/questions/57683132/turning-off-connection-pool-for-go-http-client
-		// http://tleyden.github.io/blog/2016/11/21/tuning-the-go-http-client-library-for-load-testing/
-		DisableKeepAlives: true,
+		MaxIdleConns:        0,                 // 最大连接数,默认0无穷大
+		MaxIdleConnsPerHost: 0,                 // 对每个host的最大连接数量(MaxIdleConnsPerHost<=MaxIdleConns)
+		IdleConnTimeout:     120 * time.Second, // 多长时间未使用自动关闭连接
 	}
-	return HTTPTransport
+	return tr
 }
-
-var trans = createTransport()
 
 func worker(wc *WorkerContext, agp ArgProvider) {
 	fmt.Printf("worker %d started\n", wc.WorkerID)
-	cli := &http.Client{Transport: trans, Timeout: 25 * time.Second}
+	cli := http.DefaultClient // &http.Client{Transport: createTransport(), Timeout: 120 * time.Second}
 	var batchID int64 = 0
 	for ; batchID < wc.BatchSize; batchID++ {
 		sendRequest(batchID, wc, agp, cli)
@@ -75,12 +84,13 @@ func sendRequest(batchID int64, wc *WorkerContext, agp ArgProvider, cli *http.Cl
 	}
 	//
 	if !(resp.StatusCode <= 200 && resp.StatusCode < 300) {
+		codeStr := fmt.Sprintf("Status code %d", resp.StatusCode)
 		body, err := io.ReadAll(resp.Body)
 		if err == nil {
-			fmt.Println(string(body))
-			Stat.ReportFailed(string(body))
+			fmt.Println(codeStr + string(body))
+			Stat.ReportFailed(codeStr + string(body))
 		} else {
-			Stat.ReportFailed(fmt.Sprintf("Status code %d", resp.StatusCode))
+			Stat.ReportFailed(codeStr)
 		}
 		return
 	}
