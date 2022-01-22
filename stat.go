@@ -26,7 +26,9 @@ type ReqStat struct {
 	started      int64          // num of started workers
 	stopped      int64          // num of stopped workers
 	errors       map[string]int // error statistics. key is error message, value is counter
-	errorsMutex  sync.Mutex     // lock when updating errors
+
+	rwMutex     sync.RWMutex
+	errorsMutex sync.Mutex // lock when updating errors
 }
 
 var Stat ReqStat
@@ -36,8 +38,13 @@ func init() {
 }
 
 func (s *ReqStat) Clear() {
-	atomic.StoreInt64(&s.success, 0)
-	atomic.StoreInt64(&s.failed, 0)
+	s.rwMutex.Lock()
+	if s.success > s.maxSuccess {
+		s.maxSuccess = s.success
+	}
+	s.success = 0
+	s.failed = 0
+	s.rwMutex.Unlock()
 }
 
 func (s *ReqStat) ReportWorkerStarted() {
@@ -72,10 +79,23 @@ func (s *ReqStat) ReportFailed(message string) {
 }
 
 func (s *ReqStat) ClearAll() {
-	atomic.StoreInt64(&s.success, 0)
-	atomic.StoreInt64(&s.failed, 0)
-	atomic.StoreInt64(&s.totalSuccess, 0)
-	atomic.StoreInt64(&s.totalFailed, 0)
+
+	s.rwMutex.Lock()
+	s.success = 0
+	s.failed = 0
+	s.maxSuccess = 0
+	s.maxFailed = 0
+	s.totalSuccess = 0
+	s.totalFailed = 0
+	s.total = 0
+	s.started = 0
+	s.stopped = 0
+	s.rwMutex.Unlock()
+
+	s.errorsMutex.Lock()
+	s.errors = make(map[string]int)
+	s.errorsMutex.Unlock()
+
 }
 
 func Round(val float64, precision int) float64 {
@@ -132,7 +152,7 @@ func (s *ReqStat) Start(wg *sync.WaitGroup, total int64) {
 		f.WriteString("Summary:\n")
 		deltaTime := (s.endTime.Unix() - s.startTime.Unix())
 		if deltaTime == 0 {
-			deltaTime++
+			deltaTime = 1
 		}
 		qps := s.totalSuccess / deltaTime
 		f.WriteString(fmt.Sprintf("%d success, %d failed. %d avg qps, %d max qps\n", s.totalSuccess, s.totalFailed, qps, s.maxSuccess))
