@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -10,15 +11,22 @@ import (
 )
 
 type ReqStat struct {
-	success      int64
-	failed       int64
-	totalSuccess int64
-	totalFailed  int64
-	stopFlag     bool
-	started      int64
-	stopped      int64
-	errors       map[string]int
-	errorsMutex  sync.Mutex
+	stopFlag     bool // tell the ticker to stop
+	tickDuration int64
+	startTime    time.Time
+	endTime      time.Time
+
+	success      int64          // num of success req during a tick
+	failed       int64          // num of failed req during a tick
+	maxSuccess   int64          // max num of success req during a tick
+	maxFailed    int64          // max num of failed req during a tick
+	totalSuccess int64          // num of success req totally
+	totalFailed  int64          // num of failed req totally
+	total        int64          // num of total req, given when start (this does NOT equal to totalSuccess + totalFailed)
+	started      int64          // num of started workers
+	stopped      int64          // num of stopped workers
+	errors       map[string]int // error statistics. key is error message, value is counter
+	errorsMutex  sync.Mutex     // lock when updating errors
 }
 
 var Stat ReqStat
@@ -70,45 +78,77 @@ func (s *ReqStat) ClearAll() {
 	atomic.StoreInt64(&s.totalFailed, 0)
 }
 
-func (s *ReqStat) Start(wg *sync.WaitGroup) {
-	var tickDuration int = 1000 // ms
-	wg.Add(1)
+func Round(val float64, precision int) float64 {
+	p := math.Pow10(precision)
+	return math.Floor(val*p+0.5) / p
+}
+
+func Percent(a, b int64, prec int) string {
+	return fmt.Sprintf(
+		"%.2f", Round(float64(a*100)/float64(b), prec),
+	) + "%"
+}
+
+func (s *ReqStat) Start(wg *sync.WaitGroup, total int64) {
+	if total <= 0 {
+		return
+	}
+	wg.Add(1) // make sure main coroutine will await stat ticker before stop
+	defer wg.Done()
+	s.tickDuration = 1000 // in ms
 	s.stopFlag = false
-	tc := time.NewTicker(time.Microsecond * time.Duration(tickDuration*1000))
-	defer tc.Stop()
+	s.total = total
+	s.startTime = time.Now()
+
 	fname := fmt.Sprintf("stat-%s.log", time.Now().Format("2006-01-02_15_04_05"))
 	f, err := os.OpenFile(fname, os.O_CREATE, 0777)
 	panicErr(err)
 	defer f.Close()
 
+	tc := time.NewTicker(time.Microsecond * time.Duration(s.tickDuration*1000))
+	defer tc.Stop()
+
 	var tick uint64 = 0
 
-	f.WriteString(fmt.Sprintf("Started at %s (Unix %d) tick duration %dms\n", time.Now().UTC(), time.Now().Unix(), tickDuration))
+	f.WriteString(fmt.Sprintf("Started at %s (Unix %d). Tick duration is %dms\n", s.startTime, s.startTime.Unix(), s.tickDuration))
 	f.WriteString("Arguments:\n" + strings.Join(os.Args, " ") + "\n")
 
-	f.WriteString(fmt.Sprintf("%-8s %-8s %-8s %-8s %-8s\n", "Tick", "ReqSucc", "ReqFail", "Started", "Running"))
+	f.WriteString(fmt.Sprintf("%-8s %-8s %-8s %-8s %-8s %-8s %-8s\n", "Tick", "ReqSucc", "ReqFail", "Started", "Running", "TotSucc", "Remain"))
 	for {
-		f.WriteString(fmt.Sprintf("%-8d %-8d %-8d %-8d %-8d\n", tick, s.success, s.failed, s.started, s.started-s.stopped))
+		remain := s.total - (s.totalFailed + s.totalSuccess)
+		percent := Percent(s.totalSuccess+s.totalFailed, s.total, 2)
+		f.WriteString(fmt.Sprintf("%-8d %-8d %-8d %-8d %-8d %-8d %-8d(%s)\n", tick, s.success, s.failed, s.started, s.started-s.stopped, s.totalSuccess, remain, percent))
 		s.Clear()
 		tick += 1
 
 		if s.stopFlag {
-			wg.Done()
 			break
 		}
 		<-tc.C
 	}
-	f.WriteString(fmt.Sprintf("Summary: %d success, %d failed\n", s.totalSuccess, s.totalFailed))
 
-	if len(s.errors) != 0 {
-		f.WriteString("Error messages statistics: \n")
-		f.WriteString(fmt.Sprintf("%-8s | %s\n", "Count", "Message"))
-		for err, count := range s.errors {
-			f.WriteString(fmt.Sprintf("%-8d | %s\n", count, err))
+	defer func(f *os.File) {
+		f.WriteString(fmt.Sprintf("Stopped at %s (Unix %d)\n", s.endTime, s.endTime.Unix()))
+		f.WriteString("Summary:\n")
+		deltaTime := (s.endTime.Unix() - s.startTime.Unix())
+		if deltaTime == 0 {
+			deltaTime++
 		}
-	}
+		qps := s.totalSuccess / deltaTime
+		f.WriteString(fmt.Sprintf("%d success, %d failed. %d avg qps, %d max qps\n", s.totalSuccess, s.totalFailed, qps, s.maxSuccess))
+
+		if len(s.errors) != 0 {
+			f.WriteString("Error messages statistics: \n")
+			f.WriteString(fmt.Sprintf("%-8s | %s\n", "Count", "Message"))
+			for err, count := range s.errors {
+				f.WriteString(fmt.Sprintf("%-8d | %s\n", count, err))
+			}
+		}
+	}(f)
 }
 
+// Stop not really stop, just set flag
 func (s *ReqStat) Stop() {
 	s.stopFlag = true
+	s.endTime = time.Now()
 }
