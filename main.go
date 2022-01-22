@@ -33,13 +33,30 @@ func loadOptions() Option {
 		os.Exit(1)
 	}
 	return Option{
-		MaxCPUNum:    1,
+		MaxCPUNum:    runtime.NumCPU(),
 		WorkerNum:    int64(*workerNum),
 		BatchSize:    int64(*batchSize),
 		EndPoint:     *endpoint,
 		EndPointType: EndPoint_HTTP,
 		HttpMethod:   strings.ToUpper(*method),
 	}
+}
+
+func validateOptions(opt Option) {
+	if opt.MaxCPUNum <= 0 {
+		exitWithErr(fmt.Errorf("invalid cpu num: %d", opt.MaxCPUNum))
+	}
+	if opt.WorkerNum <= 0 {
+		exitWithErr(fmt.Errorf("invalid worker num: %d", opt.WorkerNum))
+	}
+	if opt.BatchSize <= 0 {
+		exitWithErr(fmt.Errorf("invalid batch size: %d", opt.BatchSize))
+	}
+}
+
+func exitWithErr(err error) {
+	println(err.Error())
+	os.Exit(1)
 }
 
 func loadAgp() ArgProvider {
@@ -54,7 +71,7 @@ func benchmark(opt Option, agp ArgProvider) {
 	var wg sync.WaitGroup
 	var twg sync.WaitGroup
 
-	go Stat.Start(&twg)
+	go Stat.Start(&twg, opt.BatchSize*opt.WorkerNum)
 
 	var workerID int64
 	for workerID = 1; workerID <= opt.WorkerNum; workerID++ {
@@ -78,5 +95,7 @@ func benchmark(opt Option, agp ArgProvider) {
 
 func main() {
 	initLogger()
-	benchmark(loadOptions(), loadAgp())
+	opt := loadOptions()
+	validateOptions(opt)
+	benchmark(opt, loadAgp())
 }
