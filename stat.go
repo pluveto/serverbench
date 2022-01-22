@@ -121,7 +121,7 @@ func (s *ReqStat) Start(wg *sync.WaitGroup, total int64) {
 	s.startTime = time.Now()
 
 	fname := fmt.Sprintf("stat-%s.log", time.Now().Format("2006-01-02_15_04_05"))
-	f, err := os.OpenFile(fname, os.O_CREATE, 0777)
+	f, err := os.OpenFile(fname, os.O_CREATE|os.O_WRONLY, 0777)
 	panicErr(err)
 	defer f.Close()
 
